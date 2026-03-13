@@ -47,8 +47,10 @@ async function loadMarket() {
     state.marketQuestion = market.question || slug;
     state.conditionId    = market.conditionId;
 
-    // clobTokenIds[0] = YES, [1] = NO
-    const tokenIds = market.clobTokenIds || [];
+    // clobTokenIds is a JSON-encoded string in the gamma API response
+    const tokenIds = typeof market.clobTokenIds === 'string'
+      ? JSON.parse(market.clobTokenIds)
+      : (market.clobTokenIds || []);
     state.tokenId  = tokenIds[0] || null;
 
     // Rewards config
