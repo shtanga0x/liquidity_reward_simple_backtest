@@ -54,7 +54,7 @@ async function loadMarket() {
       : (market.clobTokenIds || []);
     state.tokenId    = tokenIds[0] || null;
 
-    state.maxSpreadCents = market.rewardsMaxSpread != null ? market.rewardsMaxSpread : 5;
+    state.maxSpreadCents = market.rewardsMaxSpread != null ? Math.floor(market.rewardsMaxSpread) : 5;
     state.minSize        = market.rewardsMinSize   != null ? market.rewardsMinSize   : 25;
 
     // Midpoint
