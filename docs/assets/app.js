@@ -63,16 +63,17 @@ async function loadMarket() {
     if (typeof clobRewards === 'string') clobRewards = JSON.parse(clobRewards);
     const marketDailyRate = (clobRewards?.[0]?.rewardsDailyRate ?? 0) * 86400;
 
-    // Try to fetch event-level total by summing all markets in the same event
+    // Try to get event-level total by fetching the event (includes all markets with clobRewards)
     state.dailyPool = marketDailyRate; // fallback: single-market rate
     try {
-      const eventId = market.events?.[0]?.id;
-      if (eventId) {
-        const evRes = await fetch(`${GAMMA_API}/markets?event_id=${eventId}&limit=50`);
+      const eventSlug = market.events?.[0]?.slug || market.events?.[0]?.ticker;
+      if (eventSlug) {
+        const evRes = await fetch(`${GAMMA_API}/events?slug=${encodeURIComponent(eventSlug)}`);
         if (evRes.ok) {
-          const evMarkets = await evRes.json();
+          const evData = await evRes.json();
+          const evMarkets = (Array.isArray(evData) ? evData[0] : evData)?.markets ?? [];
           let eventTotal = 0;
-          for (const em of (Array.isArray(evMarkets) ? evMarkets : [])) {
+          for (const em of evMarkets) {
             let ecr = em.clobRewards;
             if (typeof ecr === 'string') { try { ecr = JSON.parse(ecr); } catch { ecr = []; } }
             eventTotal += (ecr?.[0]?.rewardsDailyRate ?? 0) * 86400;
