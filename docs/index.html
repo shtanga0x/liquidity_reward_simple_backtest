@@ -23,6 +23,12 @@
         <button id="loadBtn" class="btn" onclick="loadMarket()">Load</button>
       </div>
       <div id="marketStatus" class="status-msg"></div>
+      <div class="field-group" style="margin-top:10px">
+        <label>API Proxy URL <span class="hint">required — gamma-api.polymarket.com blocks direct browser requests. Use same Cloudflare Worker as polymarket_watch</span></label>
+        <input id="proxyUrl" class="input" type="text"
+          placeholder="https://your-worker.workers.dev"
+          oninput="PROXY_URL = this.value.trim()" />
+      </div>
     </div>
 
     <!-- MARKET INFO -->
