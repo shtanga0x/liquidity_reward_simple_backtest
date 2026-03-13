@@ -144,6 +144,8 @@ body {
 .field-group .hint a { color: #4f6ef7; text-decoration: none; }
 .field-group .hint a:hover { text-decoration: underline; }
 
+a.btn { display: inline-block; text-align: center; }
+
 .status-msg {
   margin-top: 8px;
   font-size: 13px;

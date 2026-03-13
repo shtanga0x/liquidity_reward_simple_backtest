@@ -8,12 +8,12 @@ const C = 3.0; // single-side penalty factor per Polymarket docs
 // ─── State ───────────────────────────────────────────────────────────────────
 const state = {
   marketQuestion: '',
+  slug: null,
   conditionId: null,
   tokenId: null,
   midpoint: null,
   maxSpreadCents: null,
   minSize: null,
-  dailyPool: null,
   orderbook: null,
 };
 
@@ -45,6 +45,7 @@ async function loadMarket() {
     if (!market) throw new Error('Market not found');
 
     state.marketQuestion = market.question || slug;
+    state.slug           = slug;
     state.conditionId    = market.conditionId;
 
     // clobTokenIds is a JSON-encoded string in gamma API
@@ -55,33 +56,6 @@ async function loadMarket() {
 
     state.maxSpreadCents = market.rewardsMaxSpread != null ? market.rewardsMaxSpread : 5;
     state.minSize        = market.rewardsMinSize   != null ? market.rewardsMinSize   : 25;
-
-    // Daily pool: rewardsDailyRate is USDC/second per market.
-    // The rewards page shows the EVENT-LEVEL total (all markets in the event summed).
-    // We fetch all sibling markets and sum their rates to match the UI figure.
-    let clobRewards = market.clobRewards;
-    if (typeof clobRewards === 'string') clobRewards = JSON.parse(clobRewards);
-    const marketDailyRate = (clobRewards?.[0]?.rewardsDailyRate ?? 0) * 86400;
-
-    // Try to get event-level total by fetching the event (includes all markets with clobRewards)
-    state.dailyPool = marketDailyRate; // fallback: single-market rate
-    try {
-      const eventSlug = market.events?.[0]?.slug || market.events?.[0]?.ticker;
-      if (eventSlug) {
-        const evRes = await fetch(`${GAMMA_API}/events?slug=${encodeURIComponent(eventSlug)}`);
-        if (evRes.ok) {
-          const evData = await evRes.json();
-          const evMarkets = (Array.isArray(evData) ? evData[0] : evData)?.markets ?? [];
-          let eventTotal = 0;
-          for (const em of evMarkets) {
-            let ecr = em.clobRewards;
-            if (typeof ecr === 'string') { try { ecr = JSON.parse(ecr); } catch { ecr = []; } }
-            eventTotal += (ecr?.[0]?.rewardsDailyRate ?? 0) * 86400;
-          }
-          if (eventTotal > 0) state.dailyPool = eventTotal;
-        }
-      }
-    } catch { /* ignore, use single-market fallback */ }
 
     // Midpoint
     const bestBid = parseFloat(market.bestBid);
@@ -114,7 +88,12 @@ async function loadMarket() {
     document.getElementById('midpointInput').value     = state.midpoint != null ? state.midpoint.toFixed(4) : '';
     document.getElementById('maxSpreadInput').value    = state.maxSpreadCents;
     document.getElementById('minSizeInput').value      = state.minSize;
-    document.getElementById('dailyPool').value         = state.dailyPool > 0 ? state.dailyPool.toFixed(2) : '';
+    document.getElementById('dailyPool').value         = '';
+
+    // Update betmoar link
+    const betmoarBtn = document.getElementById('betmoarBtn');
+    betmoarBtn.href = `https://www.betmoar.fun/market/${encodeURIComponent(slug)}`;
+    betmoarBtn.style.display = 'inline-block';
 
     // Suggest default bid/ask prices
     if (state.midpoint != null) {
@@ -141,8 +120,7 @@ async function loadMarket() {
       const total    = (state.orderbook.bids?.length || 0) + (state.orderbook.asks?.length || 0);
       bookInfo = `${eligBids} eligible bids, ${eligAsks} eligible asks (${total} total)`;
     }
-    const poolInfo = state.dailyPool > 0 ? ` | pool $${state.dailyPool.toFixed(2)}/day` : '';
-    setStatus(`Loaded — ${bookInfo}${poolInfo}`, 'success');
+    setStatus(`Loaded — ${bookInfo}`, 'success');
 
   } catch (err) {
     setStatus(`Error: ${err.message}`, 'error');

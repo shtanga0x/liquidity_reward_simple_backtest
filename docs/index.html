@@ -44,8 +44,12 @@
         </div>
       </div>
       <div class="field-group" style="margin-top:12px">
-        <label>Daily Reward Pool ($) <span class="hint">auto-filled from event total — override with exact value from <a href="https://polymarket.com/rewards" target="_blank">rewards page</a> (exact value requires login, not accessible via public API)</span></label>
-        <input id="dailyPool" class="input" style="max-width:200px" type="number" step="0.01" min="0" placeholder="auto" />
+        <label>Daily Reward Pool ($) <span class="hint">enter manually — check the links below for the exact value</span></label>
+        <div class="row gap" style="align-items:center;flex-wrap:wrap;gap:8px">
+          <input id="dailyPool" class="input" style="max-width:200px" type="number" step="0.01" min="0" placeholder="e.g. 572" />
+          <a id="betmoarBtn" class="btn" href="https://www.betmoar.fun" target="_blank" style="display:none;font-size:12px;padding:8px 14px;text-decoration:none">betmoar.fun ↗</a>
+          <a class="btn" href="https://polymarket.com/rewards?via=delta" target="_blank" style="font-size:12px;padding:8px 14px;text-decoration:none">Rewards page ↗</a>
+        </div>
       </div>
     </div>
 
