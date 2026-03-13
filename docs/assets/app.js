@@ -56,11 +56,31 @@ async function loadMarket() {
     state.maxSpreadCents = market.rewardsMaxSpread != null ? market.rewardsMaxSpread : 5;
     state.minSize        = market.rewardsMinSize   != null ? market.rewardsMinSize   : 25;
 
-    // Daily pool: rewardsDailyRate is in USDC/second → × 86400
+    // Daily pool: rewardsDailyRate is USDC/second per market.
+    // The rewards page shows the EVENT-LEVEL total (all markets in the event summed).
+    // We fetch all sibling markets and sum their rates to match the UI figure.
     let clobRewards = market.clobRewards;
     if (typeof clobRewards === 'string') clobRewards = JSON.parse(clobRewards);
-    const dailyRate  = clobRewards?.[0]?.rewardsDailyRate ?? 0;
-    state.dailyPool  = dailyRate * 86400;
+    const marketDailyRate = (clobRewards?.[0]?.rewardsDailyRate ?? 0) * 86400;
+
+    // Try to fetch event-level total by summing all markets in the same event
+    state.dailyPool = marketDailyRate; // fallback: single-market rate
+    try {
+      const eventId = market.events?.[0]?.id;
+      if (eventId) {
+        const evRes = await fetch(`${GAMMA_API}/markets?event_id=${eventId}&limit=50`);
+        if (evRes.ok) {
+          const evMarkets = await evRes.json();
+          let eventTotal = 0;
+          for (const em of (Array.isArray(evMarkets) ? evMarkets : [])) {
+            let ecr = em.clobRewards;
+            if (typeof ecr === 'string') { try { ecr = JSON.parse(ecr); } catch { ecr = []; } }
+            eventTotal += (ecr?.[0]?.rewardsDailyRate ?? 0) * 86400;
+          }
+          if (eventTotal > 0) state.dailyPool = eventTotal;
+        }
+      }
+    } catch { /* ignore, use single-market fallback */ }
 
     // Midpoint
     const bestBid = parseFloat(market.bestBid);
