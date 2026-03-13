@@ -1,6 +1,6 @@
 'use strict';
 
-const WORKER   = 'https://polymarket-proxy.bobrovnikovstepan.workers.dev';
+const WORKER    = 'https://polymarket-proxy.bobrovnikovstepan.workers.dev';
 const GAMMA_API = `${WORKER}/api/gamma`;
 const CLOB_API  = `${WORKER}/api/clob`;
 const C = 3.0; // single-side penalty factor per Polymarket docs
@@ -11,21 +11,21 @@ const state = {
   conditionId: null,
   tokenId: null,
   midpoint: null,
-  maxSpreadCents: null, // raw from API (in "cents", i.e. percent × 1)
+  maxSpreadCents: null,
   minSize: null,
+  dailyPool: null,
   orderbook: null,
 };
 
 // ─── URL Parsing ──────────────────────────────────────────────────────────────
 function parsePolymarketURL(url) {
-  // https://polymarket.com/event/{event-slug}/{market-slug}
   const m = url.trim().match(/polymarket\.com\/event\/[^\/]+\/([^\/\?#]+)/);
   return m ? m[1] : null;
 }
 
 // ─── Market Loader ────────────────────────────────────────────────────────────
 async function loadMarket() {
-  const url = document.getElementById('marketUrl').value.trim();
+  const url  = document.getElementById('marketUrl').value.trim();
   const slug = parsePolymarketURL(url);
 
   if (!slug) {
@@ -37,7 +37,7 @@ async function loadMarket() {
   document.getElementById('loadBtn').disabled = true;
 
   try {
-    // 1. Fetch market metadata from gamma API
+    // 1. Market metadata
     const metaRes = await fetch(`${GAMMA_API}/markets?slug=${encodeURIComponent(slug)}`);
     if (!metaRes.ok) throw new Error(`Gamma API ${metaRes.status}`);
     const markets = await metaRes.json();
@@ -47,17 +47,22 @@ async function loadMarket() {
     state.marketQuestion = market.question || slug;
     state.conditionId    = market.conditionId;
 
-    // clobTokenIds is a JSON-encoded string in the gamma API response
-    const tokenIds = typeof market.clobTokenIds === 'string'
+    // clobTokenIds is a JSON-encoded string in gamma API
+    const tokenIds   = typeof market.clobTokenIds === 'string'
       ? JSON.parse(market.clobTokenIds)
       : (market.clobTokenIds || []);
-    state.tokenId  = tokenIds[0] || null;
+    state.tokenId    = tokenIds[0] || null;
 
-    // Rewards config
     state.maxSpreadCents = market.rewardsMaxSpread != null ? market.rewardsMaxSpread : 5;
     state.minSize        = market.rewardsMinSize   != null ? market.rewardsMinSize   : 25;
 
-    // Midpoint from API fields
+    // Daily pool: rewardsDailyRate is in USDC/second → × 86400
+    let clobRewards = market.clobRewards;
+    if (typeof clobRewards === 'string') clobRewards = JSON.parse(clobRewards);
+    const dailyRate  = clobRewards?.[0]?.rewardsDailyRate ?? 0;
+    state.dailyPool  = dailyRate * 86400;
+
+    // Midpoint
     const bestBid = parseFloat(market.bestBid);
     const bestAsk = parseFloat(market.bestAsk);
     if (!isNaN(bestBid) && !isNaN(bestAsk)) {
@@ -66,51 +71,49 @@ async function loadMarket() {
       state.midpoint = parseFloat(market.outcomePrices[0]) || 0.5;
     }
 
-    // 2. Fetch orderbook for YES token
+    // 2. Orderbook
     if (state.tokenId) {
       const bookRes = await fetch(`${CLOB_API}/book?token_id=${state.tokenId}`);
       if (bookRes.ok) {
         state.orderbook = await bookRes.json();
-        // Refine midpoint from live book if available
         const bids = state.orderbook.bids || [];
         const asks = state.orderbook.asks || [];
         if (bids.length && asks.length) {
-          const liveBestBid = parseFloat(bids[0].price);
-          const liveBestAsk = parseFloat(asks[0].price);
-          if (!isNaN(liveBestBid) && !isNaN(liveBestAsk)) {
-            state.midpoint = (liveBestBid + liveBestAsk) / 2;
-          }
+          const lb = parseFloat(bids[0].price);
+          const la = parseFloat(asks[0].price);
+          if (!isNaN(lb) && !isNaN(la)) state.midpoint = (lb + la) / 2;
         }
       }
     }
 
-    // Populate UI fields
-    document.getElementById('marketName').textContent     = state.marketQuestion;
-    document.getElementById('midpointInput').value        = state.midpoint != null ? state.midpoint.toFixed(4) : '';
-    document.getElementById('maxSpreadInput').value       = state.maxSpreadCents;
-    document.getElementById('minSizeInput').value         = state.minSize;
+    // Populate fields
+    document.getElementById('marketName').textContent  = state.marketQuestion;
+    document.getElementById('midpointInput').value     = state.midpoint != null ? state.midpoint.toFixed(4) : '';
+    document.getElementById('maxSpreadInput').value    = state.maxSpreadCents;
+    document.getElementById('minSizeInput').value      = state.minSize;
+    document.getElementById('dailyPool').value         = state.dailyPool > 0 ? state.dailyPool.toFixed(2) : '';
 
-    // Suggest default order prices around midpoint
+    // Suggest default bid/ask prices
     if (state.midpoint != null) {
       const v   = state.maxSpreadCents / 100;
       const mid = state.midpoint;
-      const suggestBidPrice = Math.max(0.001, +(mid - v * 0.5).toFixed(3));
-      const suggestAskPrice = Math.min(0.999, +(mid + v * 0.5).toFixed(3));
-      document.getElementById('bidPrice').placeholder = suggestBidPrice.toFixed(3);
-      document.getElementById('askPrice').placeholder = suggestAskPrice.toFixed(3);
+      document.getElementById('bidPrice').placeholder = Math.max(0.001, +(mid - v * 0.4).toFixed(3)).toFixed(3);
+      document.getElementById('askPrice').placeholder = Math.min(0.999, +(mid + v * 0.4).toFixed(3)).toFixed(3);
     }
 
-    // Show two-sided warning for extreme markets
     const twoSidedBadge = document.getElementById('twoSidedBadge');
-    if (state.midpoint != null && (state.midpoint < 0.10 || state.midpoint > 0.90)) {
-      twoSidedBadge.style.display = 'inline-block';
-    } else {
-      twoSidedBadge.style.display = 'none';
-    }
+    twoSidedBadge.style.display =
+      state.midpoint != null && (state.midpoint < 0.10 || state.midpoint > 0.90)
+        ? 'inline-block' : 'none';
 
     document.getElementById('marketInfoCard').style.display = 'block';
     document.getElementById('ordersCard').style.display     = 'block';
-    setStatus(`Loaded — ${tokenIds.length ? `${state.orderbook?.bids?.length || 0} bids, ${state.orderbook?.asks?.length || 0} asks` : 'no orderbook'}`, 'success');
+
+    const bookInfo = state.orderbook
+      ? `${state.orderbook.bids?.length || 0} bids, ${state.orderbook.asks?.length || 0} asks`
+      : 'no orderbook';
+    const poolInfo = state.dailyPool > 0 ? ` | pool $${state.dailyPool.toFixed(2)}/day` : '';
+    setStatus(`Loaded — ${bookInfo}${poolInfo}`, 'success');
 
   } catch (err) {
     setStatus(`Error: ${err.message}`, 'error');
@@ -120,24 +123,22 @@ async function loadMarket() {
 }
 
 // ─── Score Formula ────────────────────────────────────────────────────────────
-// S(v, s) = ((v − s) / v)² × size
-// v = max spread in price units (0–1), s = distance from midpoint
-function orderScore(price, size, midpoint, v) {
-  if (size <= 0) return 0;
+// S(v, s) = ((v − s) / v)² × size_usd
+// size_usd = shares × price  (USDC committed)
+function orderScore(price, sizeUsd, midpoint, v) {
+  if (sizeUsd <= 0) return 0;
   const s = Math.abs(price - midpoint);
   if (s >= v) return 0;
-  return Math.pow((v - s) / v, 2) * size;
+  return Math.pow((v - s) / v, 2) * sizeUsd;
 }
 
-// Q_eff per Polymarket rules
 function effectiveQ(qOne, qTwo, midpoint) {
-  if (midpoint < 0.10 || midpoint > 0.90) {
-    // Extreme market: MUST be two-sided
-    return Math.min(qOne, qTwo);
-  }
-  // Normal: single side allowed but penalised by factor c
+  if (midpoint < 0.10 || midpoint > 0.90) return Math.min(qOne, qTwo);
   return Math.max(Math.min(qOne, qTwo), Math.max(qOne / C, qTwo / C));
 }
+
+// shares → USDC committed
+function sharesToUsd(shares, price) { return shares * price; }
 
 // ─── Calculate ────────────────────────────────────────────────────────────────
 function calculate() {
@@ -145,106 +146,103 @@ function calculate() {
   const maxSpreadC = parseFloat(document.getElementById('maxSpreadInput').value);
   const dailyPool  = parseFloat(document.getElementById('dailyPool').value);
   const bidPrice   = parseFloat(document.getElementById('bidPrice').value) || 0;
-  const bidSize    = parseFloat(document.getElementById('bidSize').value)  || 0;
+  const bidShares  = parseFloat(document.getElementById('bidShares').value) || 0;
   const askPrice   = parseFloat(document.getElementById('askPrice').value) || 0;
-  const askSize    = parseFloat(document.getElementById('askSize').value)  || 0;
+  const askShares  = parseFloat(document.getElementById('askShares').value) || 0;
 
-  // Validation
-  const warnings = [];
-  const infos    = [];
+  const warnings = [], infos = [];
 
   if (isNaN(midpoint) || isNaN(maxSpreadC)) {
-    alert('Please load a market first (midpoint and max spread are required).');
+    alert('Please load a market first.');
     return;
   }
   if (isNaN(dailyPool) || dailyPool <= 0) {
-    alert('Please enter the Daily Reward Pool amount (from polymarket.com/rewards).');
+    alert('Daily Reward Pool is required.');
     return;
   }
 
-  const v = maxSpreadC / 100; // convert from "cents" (percentage points) to price units
+  const v = maxSpreadC / 100;
 
-  // ── User order scores ──
-  const userBidScore = bidSize > 0 ? orderScore(bidPrice, bidSize, midpoint, v) : 0;
-  const userAskScore = askSize > 0 ? orderScore(askPrice, askSize, midpoint, v) : 0;
+  // USDC committed per side (shares × price)
+  const bidUsd = sharesToUsd(bidShares, bidPrice);
+  const askUsd = sharesToUsd(askShares, askPrice);
 
-  // ── Market orderbook totals ──
+  // User scores
+  const userBidScore = bidShares > 0 ? orderScore(bidPrice, bidUsd, midpoint, v) : 0;
+  const userAskScore = askShares > 0 ? orderScore(askPrice, askUsd, midpoint, v) : 0;
+
+  // Market orderbook scores (sizes in book are already in shares → convert to USD)
   let mktQOne = 0, mktQTwo = 0;
-
   if (state.orderbook) {
     for (const b of (state.orderbook.bids || [])) {
-      mktQOne += orderScore(parseFloat(b.price), parseFloat(b.size), midpoint, v);
+      const p = parseFloat(b.price), sz = parseFloat(b.size);
+      mktQOne += orderScore(p, sz * p, midpoint, v);
     }
     for (const a of (state.orderbook.asks || [])) {
-      mktQTwo += orderScore(parseFloat(a.price), parseFloat(a.size), midpoint, v);
+      const p = parseFloat(a.price), sz = parseFloat(a.size);
+      mktQTwo += orderScore(p, sz * p, midpoint, v);
     }
   }
 
-  // Add user's orders into market totals
   const totalQOne = mktQOne + userBidScore;
   const totalQTwo = mktQTwo + userAskScore;
+  const userQ     = effectiveQ(userBidScore, userAskScore, midpoint);
+  const totalQ    = effectiveQ(totalQOne, totalQTwo, midpoint);
 
-  // ── User effective Q ──
-  const userQ   = effectiveQ(userBidScore, userAskScore, midpoint);
-  // ── Total market effective Q (approximation: one aggregate maker per side) ──
-  const totalQ  = effectiveQ(totalQOne, totalQTwo, midpoint);
-
-  // ── Share & reward ──
   const share       = totalQ > 0 ? userQ / totalQ : 0;
   const dailyReward = share * dailyPool;
-  const capital     = bidSize + askSize;
-  const returnPct   = capital > 0 ? (dailyReward / capital) * 100 : 0;
+  const capitalUsd  = bidUsd + askUsd;
+  const returnPct   = capitalUsd > 0 ? (dailyReward / capitalUsd) * 100 : 0;
   const apr         = returnPct * 365;
 
-  // ── Minimum capital for $1 reward ──
-  let minCapital1 = null;
+  // Min shares for $1 reward (scales both sides proportionally)
+  let minShares1 = null;
   if (userQ > 0 && dailyPool > 1) {
-    // Solve: k × userQ / (k × userQ + mktEffQ) × dailyPool = 1
-    // where mktEffQ = effectiveQ(mktQOne, mktQTwo, midpoint) (market without user)
-    const mktEffQ = effectiveQ(mktQOne, mktQTwo, midpoint);
-    const target  = 1 / dailyPool; // desired share for $1
-    // k × userQ_norm × (1 − target) = target × mktEffQ
-    const userQPerDollar = capital > 0 ? userQ / capital : 0;
-    if (userQPerDollar > 0) {
-      const k     = (target * mktEffQ) / (userQPerDollar * capital * (1 - target));
-      minCapital1 = k * capital;
+    const mktEffQ      = effectiveQ(mktQOne, mktQTwo, midpoint);
+    const target       = 1 / dailyPool;
+    const userQPerSh   = (bidShares + askShares) > 0 ? userQ / (bidShares + askShares) : 0;
+    const capitalPerSh = (bidShares + askShares) > 0 ? capitalUsd / (bidShares + askShares) : 0;
+    if (userQPerSh > 0 && capitalPerSh > 0) {
+      const k    = (target * mktEffQ) / (userQPerSh * (bidShares + askShares) * (1 - target));
+      minShares1 = k * (bidShares + askShares);
     }
   } else if (userQ === 0) {
-    minCapital1 = Infinity;
+    minShares1 = Infinity;
   }
 
-  // ── Warnings ──
+  // Warnings
   const minSize = parseFloat(document.getElementById('minSizeInput').value) || 0;
-  if (bidSize > 0 && bidSize < minSize) warnings.push(`Bid size $${bidSize} is below min incentive size $${minSize} — this order may not qualify.`);
-  if (askSize > 0 && askSize < minSize) warnings.push(`Ask size $${askSize} is below min incentive size $${minSize} — this order may not qualify.`);
-  if (bidSize > 0 && userBidScore === 0) warnings.push(`Bid at ${bidPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
-  if (askSize > 0 && userAskScore === 0) warnings.push(`Ask at ${askPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
-  if ((midpoint < 0.10 || midpoint > 0.90) && (userBidScore === 0 || userAskScore === 0)) {
-    warnings.push(`This is an extreme market (mid = ${(midpoint * 100).toFixed(1)}%). Two-sided orders required — single-side earns nothing.`);
-  }
-  if (!state.orderbook || !(state.orderbook.bids?.length) && !(state.orderbook.asks?.length)) {
-    infos.push('No live orderbook loaded — market total Q estimated from your orders only. Load a market to include competitor liquidity.');
-  }
-  if (dailyPool < 1) {
-    infos.push('Minimum Polymarket payout is $1/day. Rewards below $1 are not distributed.');
-  }
+  if (bidShares > 0 && bidUsd < minSize)
+    warnings.push(`Bid value $${bidUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
+  if (askShares > 0 && askUsd < minSize)
+    warnings.push(`Ask value $${askUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
+  if (bidShares > 0 && userBidScore === 0)
+    warnings.push(`Bid at ${bidPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
+  if (askShares > 0 && userAskScore === 0)
+    warnings.push(`Ask at ${askPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
+  if ((midpoint < 0.10 || midpoint > 0.90) && (userBidScore === 0 || userAskScore === 0))
+    warnings.push(`Extreme market (mid = ${(midpoint*100).toFixed(1)}%) — two-sided orders required.`);
+  if (!state.orderbook?.bids?.length && !state.orderbook?.asks?.length)
+    infos.push('No live orderbook — competitor liquidity not included in market total Q.');
+  if (dailyPool < 1)
+    infos.push('Polymarket minimum payout is $1/day. Smaller amounts are not distributed.');
 
-  // ── Render ──
+  // Render
   document.getElementById('rDailyReward').textContent = `$${dailyReward.toFixed(4)}`;
   document.getElementById('rReturn').textContent      = `${returnPct.toFixed(3)}%`;
   document.getElementById('rApr').textContent         = `${apr.toFixed(1)}%`;
   document.getElementById('rMinSize').textContent     =
-    minCapital1 == null ? '—' :
-    minCapital1 === Infinity ? '∞ (score=0)' :
-    `$${minCapital1.toFixed(2)}`;
+    minShares1 == null    ? '—' :
+    minShares1 === Infinity ? '∞ (score=0)' :
+    `${minShares1.toFixed(0)} shares`;
 
-  document.getElementById('bkBidScore').textContent  = userBidScore.toFixed(4);
-  document.getElementById('bkAskScore').textContent  = userAskScore.toFixed(4);
-  document.getElementById('bkQone').textContent      = userBidScore.toFixed(4);
-  document.getElementById('bkQtwo').textContent      = userAskScore.toFixed(4);
-  document.getElementById('bkUserQ').textContent     = userQ.toFixed(4);
-  document.getElementById('bkMarketQ').textContent   = totalQ.toFixed(4);
-  document.getElementById('bkShare').textContent     = `${(share * 100).toFixed(4)}%`;
+  document.getElementById('bkBidScore').textContent = userBidScore.toFixed(4);
+  document.getElementById('bkAskScore').textContent = userAskScore.toFixed(4);
+  document.getElementById('bkQone').textContent     = userBidScore.toFixed(4);
+  document.getElementById('bkQtwo').textContent     = userAskScore.toFixed(4);
+  document.getElementById('bkUserQ').textContent    = userQ.toFixed(4);
+  document.getElementById('bkMarketQ').textContent  = totalQ.toFixed(4);
+  document.getElementById('bkShare').textContent    = `${(share * 100).toFixed(4)}%`;
 
   const warnBox = document.getElementById('warningBox');
   const infoBox = document.getElementById('infoBox');
@@ -256,45 +254,36 @@ function calculate() {
   document.getElementById('resultsCard').style.display = 'block';
   document.getElementById('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
-  // Live score previews
   updateScorePreviews(midpoint, v);
 }
 
-// ─── Live previews while typing ───────────────────────────────────────────────
+// ─── Live previews ────────────────────────────────────────────────────────────
 function updateScorePreviews(mid, v) {
-  const bidPrice = parseFloat(document.getElementById('bidPrice').value);
-  const bidSize  = parseFloat(document.getElementById('bidSize').value);
-  const askPrice = parseFloat(document.getElementById('askPrice').value);
-  const askSize  = parseFloat(document.getElementById('askSize').value);
+  const bidPrice  = parseFloat(document.getElementById('bidPrice').value);
+  const bidShares = parseFloat(document.getElementById('bidShares').value);
+  const askPrice  = parseFloat(document.getElementById('askPrice').value);
+  const askShares = parseFloat(document.getElementById('askShares').value);
 
-  const bprev = document.getElementById('bidScorePreview');
-  const aprev = document.getElementById('askScorePreview');
-
-  if (!isNaN(bidPrice) && !isNaN(bidSize) && mid != null) {
-    const sc = orderScore(bidPrice, bidSize, mid, v);
-    const s  = Math.abs(bidPrice - mid);
-    bprev.textContent = sc > 0
-      ? `spread ${(s * 100).toFixed(2)}¢ → score ${sc.toFixed(4)}`
-      : `spread ${(s * 100).toFixed(2)}¢ → outside max (${(v * 100).toFixed(2)}¢), score 0`;
-    bprev.style.color = sc > 0 ? '#34d399' : '#f87171';
-  } else {
-    bprev.textContent = '';
+  function preview(elId, price, shares) {
+    const el = document.getElementById(elId);
+    if (!isNaN(price) && !isNaN(shares) && shares > 0 && mid != null) {
+      const usd = shares * price;
+      const sc  = orderScore(price, usd, mid, v);
+      const s   = Math.abs(price - mid);
+      el.textContent = sc > 0
+        ? `$${usd.toFixed(2)} notional | spread ${(s*100).toFixed(2)}¢ → score ${sc.toFixed(4)}`
+        : `$${usd.toFixed(2)} notional | spread ${(s*100).toFixed(2)}¢ → outside max (${(v*100).toFixed(2)}¢), score 0`;
+      el.style.color = sc > 0 ? '#34d399' : '#f87171';
+    } else {
+      el.textContent = '';
+    }
   }
 
-  if (!isNaN(askPrice) && !isNaN(askSize) && mid != null) {
-    const sc = orderScore(askPrice, askSize, mid, v);
-    const s  = Math.abs(askPrice - mid);
-    aprev.textContent = sc > 0
-      ? `spread ${(s * 100).toFixed(2)}¢ → score ${sc.toFixed(4)}`
-      : `spread ${(s * 100).toFixed(2)}¢ → outside max (${(v * 100).toFixed(2)}¢), score 0`;
-    aprev.style.color = sc > 0 ? '#34d399' : '#f87171';
-  } else {
-    aprev.textContent = '';
-  }
+  preview('bidScorePreview', bidPrice, bidShares);
+  preview('askScorePreview', askPrice, askShares);
 }
 
-// ─── Live preview on input ────────────────────────────────────────────────────
-['bidPrice','bidSize','askPrice','askSize'].forEach(id => {
+['bidPrice','bidShares','askPrice','askShares'].forEach(id => {
   document.getElementById(id).addEventListener('input', () => {
     const mid = parseFloat(document.getElementById('midpointInput').value);
     const v   = parseFloat(document.getElementById('maxSpreadInput').value) / 100;
@@ -306,9 +295,8 @@ document.getElementById('marketUrl').addEventListener('keydown', e => {
   if (e.key === 'Enter') loadMarket();
 });
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 function setStatus(msg, type) {
   const el = document.getElementById('marketStatus');
-  el.textContent  = msg;
-  el.className    = `status-msg ${type}`;
+  el.textContent = msg;
+  el.className   = `status-msg ${type}`;
 }
