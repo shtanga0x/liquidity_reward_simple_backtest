@@ -1,18 +1,9 @@
 'use strict';
 
-// Set to your Cloudflare Worker proxy URL to bypass CORS (same worker as polymarket_watch)
-// e.g. 'https://your-worker.workers.dev'
-// Leave empty to attempt direct requests (may fail in browser due to CORS)
-let PROXY_URL = '';
-
-const GAMMA_API = 'https://gamma-api.polymarket.com';
-const CLOB_API  = 'https://clob.polymarket.com';
+const WORKER   = 'https://polymarket-proxy.bobrovnikovstepan.workers.dev';
+const GAMMA_API = `${WORKER}/api/gamma`;
+const CLOB_API  = `${WORKER}/api/clob`;
 const C = 3.0; // single-side penalty factor per Polymarket docs
-
-function apiFetch(url, opts) {
-  const target = PROXY_URL ? `${PROXY_URL}?url=${encodeURIComponent(url)}` : url;
-  return fetch(target, opts);
-}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 const state = {
@@ -47,7 +38,7 @@ async function loadMarket() {
 
   try {
     // 1. Fetch market metadata from gamma API
-    const metaRes = await apiFetch(`${GAMMA_API}/markets?slug=${encodeURIComponent(slug)}`);
+    const metaRes = await fetch(`${GAMMA_API}/markets?slug=${encodeURIComponent(slug)}`);
     if (!metaRes.ok) throw new Error(`Gamma API ${metaRes.status}`);
     const markets = await metaRes.json();
     const market  = Array.isArray(markets) ? markets[0] : markets;
@@ -75,7 +66,7 @@ async function loadMarket() {
 
     // 2. Fetch orderbook for YES token
     if (state.tokenId) {
-      const bookRes = await apiFetch(`${CLOB_API}/book?token_id=${state.tokenId}`);
+      const bookRes = await fetch(`${CLOB_API}/book?token_id=${state.tokenId}`);
       if (bookRes.ok) {
         state.orderbook = await bookRes.json();
         // Refine midpoint from live book if available
@@ -120,10 +111,7 @@ async function loadMarket() {
     setStatus(`Loaded — ${tokenIds.length ? `${state.orderbook?.bids?.length || 0} bids, ${state.orderbook?.asks?.length || 0} asks` : 'no orderbook'}`, 'success');
 
   } catch (err) {
-    const hint = err.message.includes('fetch')
-      ? `${err.message} — set your proxy URL below (gamma-api.polymarket.com requires CORS proxy)`
-      : err.message;
-    setStatus(`Error: ${hint}`, 'error');
+    setStatus(`Error: ${err.message}`, 'error');
   } finally {
     document.getElementById('loadBtn').disabled = false;
   }
