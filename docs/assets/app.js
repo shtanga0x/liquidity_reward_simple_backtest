@@ -79,8 +79,10 @@ async function loadMarket() {
         const bids = state.orderbook.bids || [];
         const asks = state.orderbook.asks || [];
         if (bids.length && asks.length) {
-          const lb = parseFloat(bids[0].price);
-          const la = parseFloat(asks[0].price);
+          // Bids: descending → best bid = bids[0]
+          // Asks: descending (0.999 first) → best ask = minimum price
+          const lb = Math.max(...bids.map(b => parseFloat(b.price)));
+          const la = Math.min(...asks.map(a => parseFloat(a.price)));
           if (!isNaN(lb) && !isNaN(la)) state.midpoint = (lb + la) / 2;
         }
       }
@@ -109,9 +111,15 @@ async function loadMarket() {
     document.getElementById('marketInfoCard').style.display = 'block';
     document.getElementById('ordersCard').style.display     = 'block';
 
-    const bookInfo = state.orderbook
-      ? `${state.orderbook.bids?.length || 0} bids, ${state.orderbook.asks?.length || 0} asks`
-      : 'no orderbook';
+    let bookInfo = 'no orderbook';
+    if (state.orderbook) {
+      const v   = state.maxSpreadCents / 100;
+      const mid = state.midpoint;
+      const eligBids = (state.orderbook.bids || []).filter(b => Math.abs(parseFloat(b.price) - mid) < v).length;
+      const eligAsks = (state.orderbook.asks || []).filter(a => Math.abs(parseFloat(a.price) - mid) < v).length;
+      const total    = (state.orderbook.bids?.length || 0) + (state.orderbook.asks?.length || 0);
+      bookInfo = `${eligBids} eligible bids, ${eligAsks} eligible asks (${total} total)`;
+    }
     const poolInfo = state.dailyPool > 0 ? ` | pool $${state.dailyPool.toFixed(2)}/day` : '';
     setStatus(`Loaded — ${bookInfo}${poolInfo}`, 'success');
 
