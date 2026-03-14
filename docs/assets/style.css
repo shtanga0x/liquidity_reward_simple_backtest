@@ -193,7 +193,7 @@ a.btn { display: inline-block; text-align: center; }
 
 .results-main {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -283,7 +283,7 @@ a.btn { display: inline-block; text-align: center; }
 @media (max-width: 640px) {
   .grid3 { grid-template-columns: 1fr; }
   .orders-grid { grid-template-columns: 1fr; }
-  .results-main { grid-template-columns: repeat(2, 1fr); }
+  .results-main { grid-template-columns: repeat(3, 1fr); }
   .header { padding: 18px 16px; }
   .card { padding: 16px; }
 }

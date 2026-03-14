@@ -173,15 +173,7 @@ function calculate() {
 
   const v = maxSpreadC / 100;
 
-  // USDC committed per side (shares × price)
-  const bidUsd = sharesToUsd(bidShares, bidPrice);
-  const askUsd = sharesToUsd(askShares, askPrice);
-
-  // User scores
-  const userBidScore = bidShares > 0 ? orderScore(bidPrice, bidUsd, midpoint, v) : 0;
-  const userAskScore = askShares > 0 ? orderScore(askPrice, askUsd, midpoint, v) : 0;
-
-  // Market orderbook scores (sizes in book are already in shares → convert to USD)
+  // Market orderbook scores (computed first — needed for auto-fill)
   let mktQOne = 0, mktQTwo = 0;
   if (state.orderbook) {
     for (const b of (state.orderbook.bids || [])) {
@@ -194,6 +186,31 @@ function calculate() {
     }
   }
 
+  // Auto-fill both share fields when empty: compute qty for $1/day reward
+  if (bidShares === 0 && askShares === 0 && bidPrice > 0 && noPrice > 0 && dailyPool > 1) {
+    const Q_yes_1  = orderScore(bidPrice, bidPrice, midpoint, v);   // score for 1 YES share
+    const Q_no_1   = orderScore(askPrice, askPrice, midpoint, v);   // score for 1 NO share (askPrice = 1-noPrice)
+    const Qeff_1   = effectiveQ(Q_yes_1, Q_no_1, midpoint);
+    const mktQeff  = effectiveQ(mktQOne, mktQTwo, midpoint);
+    if (Qeff_1 > 0) {
+      const k = mktQeff > 0
+        ? Math.ceil(mktQeff / (Qeff_1 * (dailyPool - 1)))
+        : 1;
+      document.getElementById('bidShares').value = k;
+      document.getElementById('askShares').value = k;
+      bidShares = k;
+      askShares = k;
+    }
+  }
+
+  // USDC committed per side (shares × price)
+  const bidUsd = sharesToUsd(bidShares, bidPrice);
+  const askUsd = sharesToUsd(askShares, askPrice);
+
+  // User scores
+  const userBidScore = bidShares > 0 ? orderScore(bidPrice, bidUsd, midpoint, v) : 0;
+  const userAskScore = askShares > 0 ? orderScore(askPrice, askUsd, midpoint, v) : 0;
+
   const totalQOne = mktQOne + userBidScore;
   const totalQTwo = mktQTwo + userAskScore;
   const userQ     = effectiveQ(userBidScore, userAskScore, midpoint);
@@ -204,21 +221,6 @@ function calculate() {
   const capitalUsd  = bidUsd + askUsd;
   const returnPct   = capitalUsd > 0 ? (dailyReward / capitalUsd) * 100 : 0;
   const apr         = returnPct * 365;
-
-  // Min shares for $1 reward (scales both sides proportionally)
-  let minShares1 = null;
-  if (userQ > 0 && dailyPool > 1) {
-    const mktEffQ      = effectiveQ(mktQOne, mktQTwo, midpoint);
-    const target       = 1 / dailyPool;
-    const userQPerSh   = (bidShares + askShares) > 0 ? userQ / (bidShares + askShares) : 0;
-    const capitalPerSh = (bidShares + askShares) > 0 ? capitalUsd / (bidShares + askShares) : 0;
-    if (userQPerSh > 0 && capitalPerSh > 0) {
-      const k    = (target * mktEffQ) / (userQPerSh * (bidShares + askShares) * (1 - target));
-      minShares1 = k * (bidShares + askShares);
-    }
-  } else if (userQ === 0) {
-    minShares1 = Infinity;
-  }
 
   // Warnings
   const minSize = parseFloat(document.getElementById('minSizeInput').value) || 0;
@@ -232,8 +234,6 @@ function calculate() {
     warnings.push(`NO at ${noPrice} → YES ask ${askPrice.toFixed(3)} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
   if ((midpoint < 0.10 || midpoint > 0.90) && (userBidScore === 0 || userAskScore === 0))
     warnings.push(`Extreme market (mid = ${(midpoint*100).toFixed(1)}%) — two-sided orders required.`);
-  if (!state.orderbook?.bids?.length && !state.orderbook?.asks?.length)
-    infos.push('No live orderbook — competitor liquidity not included in market total Q.');
   if (dailyPool < 1)
     infos.push('Polymarket minimum payout is $1/day. Smaller amounts are not distributed.');
 
@@ -241,18 +241,12 @@ function calculate() {
   document.getElementById('rDailyReward').textContent = `$${dailyReward.toFixed(4)}`;
   document.getElementById('rReturn').textContent      = `${returnPct.toFixed(3)}%`;
   document.getElementById('rApr').textContent         = `${apr.toFixed(1)}%`;
-  document.getElementById('rMinSize').textContent     =
-    minShares1 == null    ? '—' :
-    minShares1 === Infinity ? '∞ (score=0)' :
-    `${minShares1.toFixed(0)} shares`;
 
   document.getElementById('bkBidScore').textContent = userBidScore.toFixed(4);
   document.getElementById('bkAskScore').textContent = userAskScore.toFixed(4);
   document.getElementById('bkQone').textContent     = userBidScore.toFixed(4);
   document.getElementById('bkQtwo').textContent     = userAskScore.toFixed(4);
   document.getElementById('bkUserQ').textContent    = userQ.toFixed(4);
-  document.getElementById('bkMarketQ').textContent  = totalQ.toFixed(4);
-  document.getElementById('bkShare').textContent    = `${(share * 100).toFixed(4)}%`;
 
   const warnBox = document.getElementById('warningBox');
   const infoBox = document.getElementById('infoBox');
