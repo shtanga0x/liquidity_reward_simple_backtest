@@ -58,11 +58,11 @@
       <div class="card-title">Your Orders</div>
       <div class="orders-grid">
         <div class="order-side bid-side">
-          <div class="side-label">BID (buy YES below mid)</div>
+          <div class="side-label">YES ORDER (buy YES)</div>
           <div class="row gap">
             <div class="field-group flex1">
-              <label>Price</label>
-              <input id="bidPrice" class="input" type="number" step="0.001" min="0" max="1" placeholder="0.030" />
+              <label>YES Price (0–1)</label>
+              <input id="bidPrice" class="input" type="number" step="0.001" min="0" max="1" placeholder="0.025" />
             </div>
             <div class="field-group flex1">
               <label>Qty (shares)</label>
@@ -72,11 +72,11 @@
           <div class="score-preview" id="bidScorePreview"></div>
         </div>
         <div class="order-side ask-side">
-          <div class="side-label">ASK (sell YES above mid)</div>
+          <div class="side-label">NO ORDER (buy NO)</div>
           <div class="row gap">
             <div class="field-group flex1">
-              <label>Price</label>
-              <input id="askPrice" class="input" type="number" step="0.001" min="0" max="1" placeholder="0.040" />
+              <label>NO Price (0–1)</label>
+              <input id="askPrice" class="input" type="number" step="0.001" min="0" max="1" placeholder="0.955" />
             </div>
             <div class="field-group flex1">
               <label>Qty (shares)</label>
@@ -116,10 +116,10 @@
 
       <div class="card-title" style="font-size:13px;margin-bottom:8px">Score Breakdown</div>
       <div class="breakdown-grid">
-        <div class="bk-row"><span>Bid score (S)</span><span id="bkBidScore">—</span></div>
-        <div class="bk-row"><span>Ask score (S)</span><span id="bkAskScore">—</span></div>
-        <div class="bk-row"><span>Your Q<sub>one</sub></span><span id="bkQone">—</span></div>
-        <div class="bk-row"><span>Your Q<sub>two</sub></span><span id="bkQtwo">—</span></div>
+        <div class="bk-row"><span>YES score (S)</span><span id="bkBidScore">—</span></div>
+        <div class="bk-row"><span>NO score (S)</span><span id="bkAskScore">—</span></div>
+        <div class="bk-row"><span>Your Q<sub>yes</sub></span><span id="bkQone">—</span></div>
+        <div class="bk-row"><span>Your Q<sub>no</sub></span><span id="bkQtwo">—</span></div>
         <div class="bk-row highlight"><span>Your effective Q</span><span id="bkUserQ">—</span></div>
         <div class="bk-row"><span>Market total Q (all makers)</span><span id="bkMarketQ">—</span></div>
         <div class="bk-row highlight"><span>Your share</span><span id="bkShare">—</span></div>
@@ -136,7 +136,7 @@
         <p><strong>Order score:</strong> S(v, s) = ((v − s) / v)² × size</p>
         <p><em>v</em> = max spread (¢ / 100), &nbsp;<em>s</em> = |your_price − midpoint|, &nbsp;<em>size</em> = dollars</p>
         <p style="margin-top:8px"><strong>Two-sided scoring (c = 3):</strong></p>
-        <p>Q<sub>one</sub> = bid scores &nbsp;|&nbsp; Q<sub>two</sub> = ask scores</p>
+        <p>Q<sub>yes</sub> = YES buy scores &nbsp;|&nbsp; Q<sub>no</sub> = NO buy scores</p>
         <p>Q<sub>eff</sub> = max( min(Q<sub>one</sub>, Q<sub>two</sub>), max(Q<sub>one</sub>/c, Q<sub>two</sub>/c) )</p>
         <p style="margin-top:8px"><strong>Extreme midpoints (0–0.10 or 0.90–1.0):</strong></p>
         <p>Q<sub>eff</sub> = min(Q<sub>one</sub>, Q<sub>two</sub>) &nbsp;— two-sided orders required</p>

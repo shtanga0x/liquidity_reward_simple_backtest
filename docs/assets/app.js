@@ -95,12 +95,13 @@ async function loadMarket() {
     betmoarBtn.href = `https://www.betmoar.fun/market/${encodeURIComponent(slug)}`;
     betmoarBtn.style.display = 'inline-block';
 
-    // Suggest default bid/ask prices
+    // Suggest default YES/NO prices
     if (state.midpoint != null) {
       const v   = state.maxSpreadCents / 100;
       const mid = state.midpoint;
       document.getElementById('bidPrice').placeholder = Math.max(0.001, +(mid - v * 0.4).toFixed(3)).toFixed(3);
-      document.getElementById('askPrice').placeholder = Math.min(0.999, +(mid + v * 0.4).toFixed(3)).toFixed(3);
+      // NO price = 1 - YES ask price; YES ask = mid + v*0.4
+      document.getElementById('askPrice').placeholder = Math.min(0.999, +(1 - (mid + v * 0.4)).toFixed(3)).toFixed(3);
     }
 
     const twoSidedBadge = document.getElementById('twoSidedBadge');
@@ -154,8 +155,10 @@ function calculate() {
   const dailyPool  = parseFloat(document.getElementById('dailyPool').value);
   const bidPrice   = parseFloat(document.getElementById('bidPrice').value) || 0;
   const bidShares  = parseFloat(document.getElementById('bidShares').value) || 0;
-  const askPrice   = parseFloat(document.getElementById('askPrice').value) || 0;
+  const noPrice    = parseFloat(document.getElementById('askPrice').value) || 0;
   const askShares  = parseFloat(document.getElementById('askShares').value) || 0;
+  // NO buy at p_no appears on YES orderbook as ask at (1 - p_no)
+  const askPrice   = noPrice > 0 ? 1 - noPrice : 0;
 
   const warnings = [], infos = [];
 
@@ -220,13 +223,13 @@ function calculate() {
   // Warnings
   const minSize = parseFloat(document.getElementById('minSizeInput').value) || 0;
   if (bidShares > 0 && bidUsd < minSize)
-    warnings.push(`Bid value $${bidUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
+    warnings.push(`YES order value $${bidUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
   if (askShares > 0 && askUsd < minSize)
-    warnings.push(`Ask value $${askUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
+    warnings.push(`NO order value $${askUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
   if (bidShares > 0 && userBidScore === 0)
-    warnings.push(`Bid at ${bidPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
+    warnings.push(`YES at ${bidPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
   if (askShares > 0 && userAskScore === 0)
-    warnings.push(`Ask at ${askPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
+    warnings.push(`NO at ${noPrice} → YES ask ${askPrice.toFixed(3)} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
   if ((midpoint < 0.10 || midpoint > 0.90) && (userBidScore === 0 || userAskScore === 0))
     warnings.push(`Extreme market (mid = ${(midpoint*100).toFixed(1)}%) — two-sided orders required.`);
   if (!state.orderbook?.bids?.length && !state.orderbook?.asks?.length)
@@ -271,12 +274,13 @@ function updateScorePreviews(mid, v) {
   const askPrice  = parseFloat(document.getElementById('askPrice').value);
   const askShares = parseFloat(document.getElementById('askShares').value);
 
-  function preview(elId, price, shares) {
+  function preview(elId, price, shares, isNoSide) {
     const el = document.getElementById(elId);
     if (!isNaN(price) && !isNaN(shares) && shares > 0 && mid != null) {
-      const usd = shares * price;
-      const sc  = orderScore(price, usd, mid, v);
-      const s   = Math.abs(price - mid);
+      const scoringPrice = isNoSide ? 1 - price : price;
+      const usd = shares * scoringPrice;
+      const sc  = orderScore(scoringPrice, usd, mid, v);
+      const s   = Math.abs(scoringPrice - mid);
       el.textContent = sc > 0
         ? `$${usd.toFixed(2)} notional | spread ${(s*100).toFixed(2)}¢ → score ${sc.toFixed(4)}`
         : `$${usd.toFixed(2)} notional | spread ${(s*100).toFixed(2)}¢ → outside max (${(v*100).toFixed(2)}¢), score 0`;
@@ -286,8 +290,8 @@ function updateScorePreviews(mid, v) {
     }
   }
 
-  preview('bidScorePreview', bidPrice, bidShares);
-  preview('askScorePreview', askPrice, askShares);
+  preview('bidScorePreview', bidPrice, bidShares, false);
+  preview('askScorePreview', askPrice, askShares, true);
 }
 
 ['bidPrice','bidShares','askPrice','askShares'].forEach(id => {
