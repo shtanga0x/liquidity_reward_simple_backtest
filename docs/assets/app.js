@@ -224,10 +224,10 @@ function calculate() {
 
   // Warnings
   const minSize = parseFloat(document.getElementById('minSizeInput').value) || 0;
-  if (bidShares > 0 && bidUsd < minSize)
-    warnings.push(`YES order value $${bidUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
-  if (askShares > 0 && askUsd < minSize)
-    warnings.push(`NO order value $${askUsd.toFixed(2)} is below min incentive size $${minSize} — order may not qualify.`);
+  if (bidShares > 0 && bidShares < minSize)
+    warnings.push(`YES order ${bidShares} shares is below min incentive size ${minSize} shares — order may not qualify.`);
+  if (askShares > 0 && askShares < minSize)
+    warnings.push(`NO order ${askShares} shares is below min incentive size ${minSize} shares — order may not qualify.`);
   if (bidShares > 0 && userBidScore === 0)
     warnings.push(`YES at ${bidPrice} is outside max spread (mid ± ${maxSpreadC}¢) — score is zero.`);
   if (askShares > 0 && userAskScore === 0)
